@@ -30,7 +30,7 @@
   .opp .mini{display:flex;flex-direction:column;gap:3px;align-items:center;font-size:11px;color:#9fc;}
   .opp .row{display:flex;gap:2px;justify-content:center;flex-wrap:wrap;}
   .opp .stat{font-size:11px;color:#ffd54a;margin-top:4px;min-height:14px;}
-  .road{margin:8px 0;background:rgba(0,0,0,.22);border-radius:12px;padding:8px;}
+  .road{margin:8px 5;background:rgba(0,0,0,.22);border-radius:12px;padding:8px;}
   .road.active{outline:2px solid #ffd54a;}
   .road-head{display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:6px;}
   .road-head .tag{color:#bfe;}
@@ -98,7 +98,14 @@
 <body>
 <div class="topbar">
   <div class="coins">💰 <span class="gold" id="balance">--</span><span class="yuan" id="yuanEq"></span></div>
-  <div class="conn" id="connState">连接中…</div>
+  <div style="display:flex;align-items:center;gap:8px;flex:1;justify-content:center;min-width:0;">
+    <div class="conn" id="connState">连接中…</div>
+    <span id="roomTag" onclick="shareRoom()" style="display:none;font-size:12px;color:#ffd54a;font-weight:800;
+      background:rgba(255,212,74,.18);border:1px solid rgba(255,212,74,.4);
+      border-radius:12px;padding:3px 10px;cursor:pointer;letter-spacing:2px;white-space:nowrap">
+      🏠 房号 <span id="roomTagCode">----</span>
+    </span>
+  </div>
   <div class="top-actions">
     <button class="btn gray" id="soundBtn" onclick="toggleSound()">🔊</button>
     <button class="btn sec" onclick="openRecharge()">充值</button>
@@ -108,9 +115,9 @@
 
 <div class="table">
   <div class="lobbybox" id="lobbyBox" style="display:none">
-    <div class="roomcode">房号<b id="lbCode">----</b><button class="btn sec" onclick="copyCode()">复制</button></div>
+    <div class="roomcode">房号<b id="lbCode">----</b><button class="btn sec" onclick="shareRoom()">📤 分享</button></div>
     <div class="seatlist" id="lbSeats"></div>
-    <p class="hint">把房号发给朋友,打开同一网址输入房号即可入座。<br>人不满4人时开局自动用电脑AI补位。</p>
+    <p class="hint">点击上方「📤 分享」按钮,朋友收到链接直接点击即可自动加入！<br>人不满4人时开局自动用电脑AI补位。</p>
     <div id="lbAction"></div>
   </div>
 
@@ -251,8 +258,20 @@ function bestArrange(cards){
 function loadStore(k,d){try{return JSON.parse(localStorage.getItem(k))??d;}catch(e){return d;}}
 function saveStore(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 
+/* ====================== 随机昵称 ====================== */
+const _ADJ=['快乐','无敌','暴风','疯狂','神秘','冷酷','霸气','萌萌','闪电','花样',
+            '嚣张','悠哉','呆萌','威猛','傲娇','佛系','猛烈','飘逸','狂野','幸运'];
+const _NOU=['西瓜','土豆','鲤鱼','大侠','老虎','猎豹','达人','高手','牌神','豆豆',
+            '麻将','扑克','棋圣','赌神','壕哥','妹子','老王','小明','吃瓜','咸鱼'];
+function randomNickname(){
+  return _ADJ[Math.random()*_ADJ.length|0]+_NOU[Math.random()*_NOU.length|0];
+}
+
+/* ====================== URL 房号参数 ====================== */
+const _urlRoom=(()=>{const p=new URLSearchParams(location.search);const r=p.get('room');return r&&/^\d{4}$/.test(r)?r:null;})();
+
 /* ====================== 音效 ====================== */
-let actx=null,soundOn=loadStore('ol_sound',true),bgmTimer=null,bgmStep=0;
+let actx=null,soundOn=loadStore('ol_sound',true),sgMTimer=null,bgmStep=0;
 function ac(){if(!actx)actx=new (window.AudioContext||window.webkitAudioContext)();
   if(actx.state==='suspended')actx.resume();return actx;}
 function tone(f,t0,dur,type,vol){
@@ -295,7 +314,7 @@ function sfxDraw(vol){
   }catch(e){}
 }
 const sfxPlace=()=>sfxDraw(0.55), sfxBack=()=>sfxDraw(0.38), sfxFlip=()=>sfxDraw(0.45);
-const sfxClick=()=>tone(1100,0,0.06,'triangle',0.14);
+const sfxClick=()=>tone(1100,0,0.06,"triangle",0.14);
 const sfxShuffle=()=>{for(let i=0;i<16;i++)setTimeout(()=>sfxDraw(0.1),i*30);};
 const sfxTada=()=>[523,659,784,1047].forEach((f,j)=>tone(f,j*0.07,0.18,'triangle',0.16));
 const sfxCoin=()=>{tone(1568,0,0.09,'square',0.1);tone(2093,0.08,0.16,'square',0.1);};
@@ -370,7 +389,11 @@ function onMsg(m){
   if(m.t==='welcome'){
     G.uid=m.uid;saveStore('ol_uid',m.uid);
     G.balance=m.balance;renderBalance();
-    if(!G.name){show('nameOverlay');document.getElementById('nameInput').focus();}
+    if(!G.name){
+      const el=document.getElementById('nameInput');
+      if(!el.value)el.value=randomNickname();
+      show('nameOverlay');el.focus();el.select();
+    }
     else{G.name=m.name;enterLobbyUI();}
     return;
   }
@@ -431,7 +454,19 @@ function enterLobbyUI(){
   document.getElementById('lobbyBox').style.display='none';
   document.getElementById('opponents').innerHTML='';
   document.getElementById('timerBar').textContent='';
+  document.getElementById('roomTag').style.display='none';
   clearTable();
+  // 如果 URL 带了房号参数，自动填入
+  if(_urlRoom){
+    document.getElementById('joinCode').value=_urlRoom;
+    // 稍等 0.8s 自动加入，让用户看到提示
+    setTimeout(()=>{
+      if(document.getElementById('lobbyOverlay').classList.contains('show')){
+        toast('正在自动加入房间 '+_urlRoom+'…','#1565c0');
+        setTimeout(()=>joinRoom(),600);
+      }
+    },800);
+  }
   show('lobbyOverlay');
 }
 function joinRoom(){
@@ -440,12 +475,22 @@ function joinRoom(){
   sendMsg({t:'join',code});
 }
 function exitRoom(){if(confirm('退出当前房间?'))sendMsg({t:'leave'});}
-function copyCode(){
+function shareRoom(){
   if(!G.room)return;
-  const txt='来玩十三张!打开 '+location.origin+' 输入房号 '+G.room.code+' 加入我的牌桌';
-  (navigator.clipboard?navigator.clipboard.writeText(txt):Promise.reject()).then(
-    ()=>toast('已复制,发给朋友吧!','#2e7d32'),()=>prompt('复制下面内容发给朋友:',txt));
+  const url=location.origin+location.pathname+'?room='+G.room.code;
+  const title='来玩十三张联机！';
+  const text='我在玩十三张，房号：'+G.room.code+'，点击链接直接加入 👇';
+  if(navigator.share){
+    navigator.share({title,text,url}).catch(()=>{});
+  }else{
+    const full=text+'\n'+url;
+    (navigator.clipboard?navigator.clipboard.writeText(full):Promise.reject())
+      .then(()=>toast('邀请链接已复制，发给朋友吧！','#2e7d32'),
+            ()=>prompt('复制后发给朋友：',full));
+  }
 }
+// 保留旧名兼容
+function copyCode(){shareRoom();}
 function clearTable(){
   G.hand=[];G.roads=[[],[],[]];G.blocks=null;G.result=null;
   renderHand();renderRoads();
@@ -453,6 +498,10 @@ function clearTable(){
 }
 function renderRoomBar(){
   document.getElementById('exitBtn').style.display='';
+  if(G.room){
+    document.getElementById('roomTagCode').textContent=G.room.code;
+    document.getElementById('roomTag').style.display='';
+  }
 }
 /* 大厅(房间内等待开局) */
 function renderLobby(){
